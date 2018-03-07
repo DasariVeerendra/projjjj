@@ -1,0 +1,566 @@
+REPORT  ZSALES_R_CRA NO STANDARD PAGE HEADING.
+****************************************
+*         Data declaration             *
+****************************************
+data: VBELN type VBAK-VBELN,
+      POSNR type VBAP-POSNR,
+      V_FNAM TYPE STRING.
+types: BEGIN OF ty_vbak,
+       VBELN type VBAK-VBELN,
+       ERDAT type VBAK-ERDAT,
+       ERNAM type VBAK-ERNAM,
+  END OF ty_vbak.
+types: BEGIN OF ty_VBAP,
+    VBELN  type VBAP-VBELN,
+    POSNR  type VBAP-POSNR,
+    MATNR  type VBAP-MATNR,
+    END OF ty_vbap.
+TYPES: BEGIN OF ty_MAKT,
+       MATNR type MAKT-MATNR,
+       MAKTX type MAKT-MAKTX,
+  END OF ty_MAKT.
+data: it_vbak type TABLE OF ty_vbak,
+      wa_vbak type ty_vbak,
+      it_vbap type TABLE OF ty_vbap,
+      wa_vbap type ty_vbap,
+      it_makt type TABLE OF ty_makt,
+      wa_makt TYPE ty_makt.
+TYPE-POOLS: slis.
+DATA: v_repid LIKE sy-repid .
+DATA: i_fieldcat TYPE slis_t_fieldcat_alv,
+      wa_fieldcat TYPE slis_fieldcat_alv.
+DATA: it_listheader TYPE slis_t_listheader.
+DATA: v_events TYPE slis_t_event,
+      wa_event TYPE slis_alv_event.
+
+DATA:  i_title_vbak TYPE lvc_title VALUE 'Sales Document: Header Data'.
+DATA:  i_title_vbap TYPE lvc_title VALUE 'Sales Document: Item Data'.
+DATA:  i_title_makt type lvc_title VALUE 'Sales Document: Material Type'.
+
+****************************************
+*    Selection screen definition       *
+****************************************
+
+SELECTION-SCREEN BEGIN OF BLOCK blk1 with frame title title1.
+SELECT-OPTIONS s_SaleNo FOR VBELN.
+SELECT-OPTIONS s_Sales for POSNR.
+SELECTION-SCREEN END OF BLOCK blk1.
+
+SELECTION-SCREEN BEGIN OF BLOCK blk2 with frame title title2.
+PARAMETERS: classic RADIOBUTTON GROUP g1,
+            Alv RADIOBUTTON GROUP g1.
+SELECTION-SCREEN END OF BLOCK blk2.
+
+**************************************
+*    Initialization PROCESSES        *
+**************************************
+
+INITIALIZATION.
+  title1 = 'Sort for Selected Range of sales'.
+  title2 = 'Types Of Report View'.
+
+****************************************
+*    START OF SELECTION PROCESSES      *
+****************************************
+
+START-OF-SELECTION.
+  select VBELN
+         ERDAT
+         ERNAM
+  from  vbak
+  into table it_vbak
+  where VBELN
+  in s_SaleNo.
+
+  if sy-subrc = 0 and it_vbak is not INITIAL.
+    if classic = 'X'.
+      loop at it_vbak into wa_vbak.
+        write: /1 SY-VLINE,wa_vbak-VBELN HOTSPOT,
+                15 SY-VLINE, wa_vbak-ERDAT,
+                35 SY-VLINE, wa_vbak-ERNAM,
+                55 SY-VLINE.
+        hide wa_vbak-VBELN.
+      ENDLOOP.
+      uline /(55).
+    else.
+
+      v_repid = sy-repid.
+      PERFORM build_fieldcatlog.
+      PERFORM event_call.
+      PERFORM populate_event.
+      PERFORM data_retrieval.
+      PERFORM build_listheader USING it_listheader.
+      PERFORM display_alv_report.
+    endif.
+  else.
+    MESSAGE 'No Data Found' TYPE 'I'.
+  endif.
+*********************************************
+*      AT LINE-SELECTION PROCESSES          *
+*********************************************
+  AT LINE-SELECTION .                                     "Event Triggered for Line Selection
+  if classic = 'X'.
+     GET CURSOR FIELD V_FNAM.
+     IF V_FNAM = 'WA_VBAK-VBELN'.
+       select VBELN
+              POSNR
+              MATNR
+       from VBAP
+       into TABLE it_vbap
+       where vbeln = wa_vbak-VBELN and posnr in s_Sales.
+       if sy-subrc = 0 and it_vbap is not INITIAL.
+       loop at it_vbap into wa_vbap.
+       write: /1 SY-VLINE, wa_vbap-VBELN ,
+                  20 SY-VLINE, wa_vbap-POSNR,
+                  40 SY-VLINE, wa_vbap-MATNR HOTSPOT,
+                  60 SY-VLINE.
+       hide wa_vbap-MATNR.
+       ENDLOOP.
+       uline /(60).
+      else.
+        MESSAGE 'NO Data Found' type 'I'.
+      endif.
+     endif.
+  endif.
+*******************************************
+*      AT LINE-SELECTION PROCESSES        *
+*******************************************
+  AT LINE-SELECTION .                         "Event Triggered for secondary list at Line Selection
+  if classic = 'X'.
+    GET CURSOR FIELD V_FNAM.
+      IF V_FNAM = 'WA_VBAP-MATNR'.
+        select MATNR
+               MAKTX
+        from   MAKT
+        into TABLE it_makt
+        where matnr = wa_vbap-MATNR.
+          if sy-subrc = 0 and it_makt is not INITIAL.
+          loop at it_makt into wa_makt.
+          write: /1 SY-VLINE, wa_makt-MATNR,
+                20 SY-VLINE, wa_makt-MAKTX,
+                70 SY-VLINE.
+          ENDLOOP.
+          ULINE /(70).
+          else.
+          message 'NO data present' TYPE 'I'.
+         endif.
+     endif.
+  else.
+    message 'NO Sales data is present' TYPE 'I'.
+  endif.
+
+*&******************************************************
+*&      Form  BUILD_FIELDCATLOG
+*&*******************************************************
+*       Fieldcatalog has all the field details from ekko
+*********************************************************
+FORM build_fieldcatlog.
+  CLEAR I_FIELDCAT.
+  wa_fieldcat-tabname = 'it_vbak'.
+  wa_fieldcat-fieldname = 'VBELN'.
+  wa_fieldcat-seltext_m = 'Sale Doc no'.
+  wa_fieldcat-outputlen = 15 .
+  APPEND wa_fieldcat TO i_fieldcat.
+  CLEAR wa_fieldcat.
+
+  wa_fieldcat-tabname = 'IT_vbak'.
+  wa_fieldcat-fieldname = 'ERDAT'.
+  wa_fieldcat-seltext_m = 'DATE.'.
+  wa_fieldcat-outputlen = 10 .
+  APPEND wa_fieldcat TO i_fieldcat.
+  CLEAR wa_fieldcat.
+
+  wa_fieldcat-tabname = 'IT_vbak'.
+  wa_fieldcat-fieldname = 'ERNAM'.
+  wa_fieldcat-seltext_m = 'COMPANY CODE'.
+  wa_fieldcat-outputlen = 15 .
+  APPEND wa_fieldcat TO i_fieldcat.
+  CLEAR wa_fieldcat.
+ENDFORM.                    "BUILD_FIELDCATLOG
+FORM build_listheader USING i_listheader TYPE slis_t_listheader.
+  DATA hline TYPE slis_listheader.
+  REFRESH i_listheader.
+  hline-info = 'Sales Document: Header Data'.
+  hline-typ = 'H'.
+  append hline to i_listheader.
+ENDFORM.
+
+*&**************************************************
+*&      Form  EVENT_CALL
+*&**************************************************
+FORM event_call.
+  CALL FUNCTION 'REUSE_ALV_EVENTS_GET'
+    EXPORTING
+      i_list_type = 0
+    IMPORTING
+      et_events   = v_events.
+ENDFORM.                    "EVENT_CALL
+
+*&**************************************************
+*&      Form  POPULATE_EVENT
+*&**************************************************
+*      Events populated for TOP OF PAGE & USER COMAND
+*****************************************************
+FORM populate_event.
+  READ TABLE v_events INTO wa_event WITH KEY name = 'TOP_OF_PAGE'.
+  IF sy-subrc EQ 0.
+    wa_event-form = 'TOP_OF_PAGE'.
+    MODIFY v_events FROM wa_event TRANSPORTING form
+        WHERE name = wa_event-form.
+  ENDIF.
+
+  READ TABLE v_events INTO wa_event WITH KEY name = 'USER_COMMAND'.
+  IF sy-subrc EQ 0.
+    wa_event-form = 'USER_COMMAND'.
+    MODIFY v_events FROM wa_event TRANSPORTING form
+        WHERE name = wa_event-name.
+  ENDIF.
+ENDFORM.                    "POPULATE_EVENT
+*****************************************************
+*&      Form  data_retrieval
+*****************************************************
+*   retreiving values from the database table ekko
+*****************************************************
+FORM data_retrieval.
+  select VBELN
+    ERDAT
+    ERNAM from vbak into table it_vbak where VBELN in s_SaleNo.
+
+ENDFORM.                    "data_retrieval
+*****************************************************
+*&      Form  display_alv_report
+*****************************************************
+FORM display_alv_report.
+  if it_vbak is not initial.
+    v_repid = sy-repid.
+    CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+      EXPORTING
+        i_callback_program      = v_repid
+        i_callback_user_command = 'USER_COMMAND'
+        i_callback_top_of_page  = 'TOP_OF_PAGE'
+        i_grid_title            = i_title_vbak
+        it_fieldcat             = i_fieldcat[]
+        i_save                  = 'A'
+        it_events               = v_events
+      TABLES
+        t_outtab                = it_vbak.
+  else.
+    message 'NO Data Found' type 'I'.
+  endif.
+ENDFORM.                    "display_alv_report
+FORM USER_COMMAND_VBAP USING r_ucomm LIKE sy-ucomm
+                        rs_selfield TYPE slis_selfield.
+  CASE r_ucomm.
+    WHEN '&IC1'.
+      read TABLE it_vbap into wa_vbap index rs_selfield-tabindex.
+      PERFORM build_fieldcatlog_makt.
+      PERFORM event_call_makt.
+      PERFORM populate_event_makt.
+      PERFORM data_retrieval_makt.
+      PERFORM build_listheader_MAKT USING it_listheader.
+      PERFORM display_alv_makt.
+  ENDCASE.
+ENDFORM.
+*****************************************************
+*&      Form  USER_COMMAND
+*****************************************************
+FORM user_command USING r_ucomm LIKE sy-ucomm
+                        rs_selfield TYPE slis_selfield.
+  CASE r_ucomm.
+    WHEN '&IC1'.
+      READ TABLE it_vbak INTO wa_vbak INDEX rs_selfield-tabindex.
+      PERFORM build_fieldcatlog_VBAP.
+      PERFORM event_call_vbap.
+      PERFORM populate_event_vbap.
+      PERFORM data_retrieval_vbap.
+      PERFORM build_listheader_VBAP USING it_listheader.
+      PERFORM display_alv_vbap.
+
+  ENDCASE.
+ENDFORM.                    "user_command
+*****************************************************
+*&      Form  BUILD_FIELDCATLOG_EKPO
+*****************************************************
+FORM build_fieldcatlog_VBAP.
+  CLEAR I_FIELDCAT.
+  wa_fieldcat-tabname = 'IT_VBAP'.
+  wa_fieldcat-fieldname = 'VBELN'.
+  wa_fieldcat-outputlen = 15 .
+  wa_fieldcat-seltext_m = 'PO NO.'.
+  APPEND wa_fieldcat TO i_fieldcat.
+  CLEAR wa_fieldcat.
+  wa_fieldcat-tabname = 'IT_VBAP'.
+  wa_fieldcat-fieldname = 'POSNR'.
+  wa_fieldcat-seltext_m = 'LINE NO'.
+  wa_fieldcat-outputlen = 10 .
+  APPEND wa_fieldcat TO i_fieldcat.
+  CLEAR wa_fieldcat.
+  wa_fieldcat-tabname = 'I_VBAP'.
+  wa_fieldcat-fieldname = 'MATNR'.
+  wa_fieldcat-seltext_m = 'MATERIAL NO.'.
+  wa_fieldcat-outputlen = 15 .
+  APPEND wa_fieldcat TO i_fieldcat.
+
+ENDFORM.                    "BUILD_FIELDCATLOG_VBAP
+*****************************************************
+*&      Form  event_call_VBAP
+*****************************************************
+*   we get all events - TOP OF PAGE or USER COMMAND in table v_events
+*****************************************************
+FORM event_call_vbap.
+  CALL FUNCTION 'REUSE_ALV_EVENTS_GET'
+    EXPORTING
+      i_list_type = 0
+    IMPORTING
+      et_events   = v_events.
+ENDFORM.                    "event_call_VBAP
+
+FORM build_listheader_MAKT USING i_listheader TYPE slis_t_listheader.
+  DATA hline TYPE slis_listheader.
+  REFRESH i_listheader.
+  hline-info = 'Sales Document: Material Type'.
+  hline-typ = 'H'.
+  append hline to i_listheader.
+ENDFORM.
+***************************************************************
+*&      Form  POPULATE_EVENT
+****************************************************************
+*        Events populated for TOP OF PAGE & USER COMAND
+****************************************************************
+FORM populate_event_vbap.
+  READ TABLE v_events INTO wa_event WITH KEY name = 'TOP_OF_PAGE'.
+  IF sy-subrc EQ 0.
+    wa_event-form = 'TOP_OF_PAGE'.
+    MODIFY v_events FROM wa_event TRANSPORTING form
+        WHERE name = wa_event-form.
+  ENDIF.
+
+ENDFORM.                    "POPULATE_EVENT
+****************************************************************
+*&      Form  TOP_OF_PAGE
+****************************************************************
+FORM TOP_OF_PAGE.
+  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+    EXPORTING
+      it_list_commentary = it_listheader.
+ENDFORM.                    "TOP_OF_PAGE
+****************************************************************
+*&      Form  USER_COMMAND
+****************************************************************
+FORM data_retrieval_vbap.
+  select VBELN
+         POSNR
+         MATNR
+  from   VBAP
+  into TABLE it_vbap
+  where vbeln = wa_vbak-VBELN and posnr in s_Sales.
+ENDFORM.
+****************************************************************
+*&      Form  DISPLAY_ALV_EKPO
+****************************************************************
+FORM display_alv_vbap.
+  if it_vbap is not INITIAL.
+    CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+      EXPORTING
+        i_callback_program      = v_repid
+        i_callback_top_of_page  = 'TOP_OF_PAGE'
+        i_callback_user_command = 'USER_COMMAND_VBAP'
+        i_grid_title            = i_title_vbap
+        it_fieldcat             = i_fieldcat[]
+        i_save                  = 'A'
+        it_events               = v_events
+      TABLES
+        t_outtab                = it_vbap.
+
+  else.
+    message 'NO Data Found' type 'I'.
+  endif.
+ENDFORM.
+****************************************************************
+*&      Form  BUILD_FIELDCATLOG_MAKT
+****************************************************************
+FORM BUILD_FIELDCATLOG_MAKT .
+  CLEAR I_FIELDCAT.
+  wa_fieldcat-tabname = 'IT_makt'.
+  wa_fieldcat-fieldname = 'MATNR'.
+  wa_fieldcat-seltext_m = 'Material NO.'.
+  APPEND wa_fieldcat TO i_fieldcat.
+  CLEAR wa_fieldcat.
+  wa_fieldcat-tabname = 'IT_makt'.
+  wa_fieldcat-fieldname = 'MAKTX'.
+  wa_fieldcat-seltext_m = 'Material type'.
+  APPEND wa_fieldcat TO i_fieldcat.
+ENDFORM.                    " BUILD_FIELDCATLOG_MAKT
+****************************************************************
+*&      Form  EVENT_CALL_MAKT
+****************************************************************
+FORM EVENT_CALL_MAKT .
+  CALL FUNCTION 'REUSE_ALV_EVENTS_GET'
+    EXPORTING
+      i_list_type = 0
+    IMPORTING
+      et_events   = v_events.
+ENDFORM.                    " EVENT_CALL_MAKT
+****************************************************************
+*&      Form  POPULATE_EVENT_MAKT
+****************************************************************
+
+FORM POPULATE_EVENT_MAKT .
+  READ TABLE v_events INTO wa_event WITH KEY name = 'TOP_OF_PAGE'.
+  IF sy-subrc EQ 0.
+    wa_event-form = 'TOP_OF_PAGE'.
+    MODIFY v_events FROM wa_event TRANSPORTING form
+    WHERE name = wa_event-form.
+  ENDIF.
+ENDFORM.                    " POPULATE_EVENT_MAKT
+****************************************************************
+*&      Form  DATA_RETRIEVAL_MAKT
+****************************************************************
+
+FORM DATA_RETRIEVAL_MAKT .
+  select MATNR
+         MAKTX
+  from   MAKT
+  into TABLE it_makt
+  where matnr = wa_vbap-MATNR.
+ENDFORM.                    " DATA_RETRIEVAL_MAKT
+
+****************************************************************
+*&      Form  DISPLAY_ALV_MAKT
+****************************************************************
+
+FORM DISPLAY_ALV_MAKT .
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+      i_callback_program     = v_repid
+      i_callback_top_of_page = 'TOP_OF_PAGE'
+      i_grid_title           = i_title_makt
+      it_fieldcat            = i_fieldcat[]
+      i_save                 = 'A'
+      it_events              = v_events
+    TABLES
+      t_outtab               = it_makt.
+
+ENDFORM.                    " DISPLAY_ALV_MAKT
+**********************************
+*         TOP-OF-PAGE.           *
+**********************************
+TOP-OF-page.
+  format COLOR 1 on.
+  ULINE /1(55).
+  write: /1 SY-VLINE,'Sale doc no',
+                   15 SY-VLINE,'Created date',
+                   35 SY-VLINE,'Customer name',
+                   55 SY-VLINE.
+  uline /1(55).
+
+END-OF-PAGE.
+  uline /1(55).
+********************************************************
+*           TOP-OF-PAGE DURING LINE-SELECTION.         *
+********************************************************
+TOP-OF-PAGE DURING LINE-SELECTION.
+  format COLOR 1 on.
+  case sy-lsind.
+    when 1.
+      ULINE  /1(60).
+      write: /1  SY-VLINE,'Sales Doc no',
+                 20 SY-VLINE,'Sales Doc item',
+                 40 SY-VLINE,'Material Number',
+                 60 SY-VLINE.
+      ULINE  /1(60).
+    when 2.
+      uline /1(70).
+      WRITE: /1 SY-VLINE, 'Material no',
+             20 SY-VLINE,'Material Desc',
+             70 SY-VLINE.
+      uline /1(70).
+  ENDCASE.
+*&---------------------------------------------------------------------*
+*&      Form  BUILD_LISTHEADER_VBAP
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+
+FORM BUILD_LISTHEADER_VBAP  USING i_listheader TYPE slis_t_listheader.
+
+  DATA LWA_hline TYPE slis_listheader.
+  REFRESH i_listheader.
+  LWA_hline-info = 'Sales Document: Item Data'.
+  LWA_hline-typ = 'H'.
+  append LWA_hline to i_listheader.
+
+ENDFORM.                    " BUILD_LISTHEADER_VBAP
+
+
+
+
+
+
+
+
+
+PROCESS BEFORE OUTPUT.
+
+MODULE %_INIT_PBO.
+
+MODULE %_PBO_REPORT.
+
+MODULE %_PF_STATUS.
+
+MODULE %_S_SALENO.
+
+MODULE %_S_SALES.
+
+MODULE %_END_OF_PBO.
+
+PROCESS AFTER INPUT.
+
+  MODULE %_BACK AT EXIT-COMMAND.
+
+  MODULE %_INIT_PAI.
+
+CHAIN.
+  FIELD  S_SALENO-LOW.
+  FIELD  S_SALENO-HIGH.
+  MODULE %_S_SALENO.
+ENDCHAIN.
+
+CHAIN.
+  FIELD  S_SALES-LOW.
+  FIELD  S_SALES-HIGH.
+  MODULE %_S_SALES.
+ENDCHAIN.
+
+
+CHAIN.
+  FIELD  S_SALENO-LOW.
+  FIELD  S_SALENO-HIGH.
+  FIELD  S_SALES-LOW.
+  FIELD  S_SALES-HIGH.
+    MODULE %_BLOCK_1000000.
+ENDCHAIN.
+
+CHAIN.
+  FIELD CLASSIC .
+  FIELD ALV     .
+    MODULE %_RADIOBUTTON_GROUP_G1                            .
+ENDCHAIN.
+
+
+CHAIN.
+  FIELD CLASSIC .
+  FIELD ALV     .
+    MODULE %_BLOCK_1000004.
+ENDCHAIN.
+
+CHAIN.
+  FIELD  S_SALENO-LOW.
+  FIELD  S_SALENO-HIGH.
+  FIELD  S_SALES-LOW.
+  FIELD  S_SALES-HIGH.
+  FIELD CLASSIC .
+  FIELD ALV     .
+  MODULE %_END_OF_SCREEN.
+  MODULE %_OK_CODE_1000.
+ENDCHAIN.

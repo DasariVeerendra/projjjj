@@ -1,0 +1,266 @@
+REPORT zmmc_material_01 MESSAGE-ID ZMM_MATERIAL.
+
+TYPES : BEGIN OF ty_file,
+          matnr TYPE rmmg1-matnr,
+          mbrsh TYPE rmmg1-mbrsh,
+          mtart TYPE rmmg1-mtart,
+          maktx TYPE makt-maktx,
+          meins TYPE mara-meins,
+        END OF ty_file.
+TYPES: BEGIN OF ty_msg,
+         v_msg1(100),
+       END OF ty_msg.
+
+PARAMETERS p_file TYPE ibipparms-path.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+  CALL FUNCTION 'F4_FILENAME'             "Entering the file path as input
+    EXPORTING
+      program_name  = syst-cprog
+      dynpro_number = syst-dynnr
+    IMPORTING
+      file_name     = p_file.
+
+START-OF-SELECTION.
+  DATA lv_file1 TYPE string.                                "#NEEDED.
+  DATA : wa_file TYPE ty_file,
+         it_file TYPE TABLE OF ty_file.
+
+  lv_file1 = p_file.
+
+  CALL FUNCTION 'GUI_UPLOAD'                             "Function Module called to upload the file
+    EXPORTING
+      filename            = lv_file1
+      filetype            = 'ASC'
+      has_field_separator = 'X'
+    TABLES
+      data_tab            = it_file.
+
+  CALL SCREEN 6000.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_6000  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_6000 INPUT.
+
+  DATA : transaction TYPE c VALUE 'X', "categories of radio buttons
+         session     TYPE c.
+
+  DATA: it_msg TYPE TABLE OF ty_msg,
+        wa_msg TYPE ty_msg.
+
+  DATA : o_container1 TYPE REF TO cl_gui_custom_container,
+         o_grid1      TYPE REF TO cl_gui_alv_grid.
+
+  DATA : it_bdcdata    TYPE TABLE OF bdcdata, "Declaration of internal tables
+         wa_bdcdata    TYPE bdcdata,
+         it_bdcmsgcoll TYPE TABLE OF bdcmsgcoll,
+         wa_bdcmsgcoll TYPE bdcmsgcoll.
+
+  IF sy-ucomm = 'BACK'.
+    LEAVE TO SCREEN 0.
+  ELSEIF transaction = 'X'.
+    "Call Transaction Method
+    LOOP AT it_file INTO wa_file.
+
+      "SCREEN 0060(first screen)
+      PERFORM bdc_dynpro USING 'SAPLMGMM' '0060'.
+      PERFORM bdc_field USING 'RMMG1-MATNR' wa_file-matnr.
+      PERFORM bdc_field USING 'RMMG1-MBRSH' wa_file-mbrsh.
+      PERFORM bdc_field USING 'RMMG1-MTART' wa_file-mtart.
+      PERFORM bdc_field USING 'BDC_OKCODE' '=ENTR'.
+
+      "SCREEN 0070(screen 2 displayed as dialog box)
+      PERFORM bdc_dynpro USING 'SAPLMGMM' '0070'.
+      PERFORM bdc_field USING 'MSICHTAUSW-KZSEL(01)' 'X'.
+      PERFORM bdc_field USING 'MSICHTAUSW-KZSEL(02)' 'X'.
+      PERFORM bdc_field USING 'BDC_OKCODE' '=ENTR'.
+
+      "SCREEN 4004 (basic data 1)
+      PERFORM bdc_dynpro USING 'SAPLMGMM' '4004'.
+      PERFORM bdc_field USING 'MAKT-MAKTX' wa_file-maktx.
+      PERFORM bdc_field USING 'MARA-MEINS' wa_file-meins.
+      PERFORM bdc_field USING 'BDC_OKCODE' '=SP02'.
+
+      "SCREEN 4004 (basic data 2 )
+      PERFORM bdc_dynpro USING 'SAPLMGMM' '4004'.
+      PERFORM bdc_field USING 'MAKT-MAKTX' wa_file-maktx.
+      PERFORM bdc_field USING 'BDC_OKCODE' '=BU'.
+
+      CALL TRANSACTION 'MM01' USING it_bdcdata       "CALL TRANSACTION METHOD
+                      MODE 'N'
+                      MESSAGES INTO it_bdcmsgcoll.
+
+      REFRESH it_bdcdata.
+
+    ENDLOOP.
+
+    DATA: v_msg TYPE string.
+    LOOP AT it_bdcmsgcoll INTO wa_bdcmsgcoll.
+      CALL FUNCTION 'FORMAT_MESSAGE'
+        EXPORTING
+          id   = wa_bdcmsgcoll-msgid
+          lang = '-D'
+          no   = wa_bdcmsgcoll-msgnr
+          v1   = wa_bdcmsgcoll-msgv1
+          v2   = wa_bdcmsgcoll-msgv2
+          v3   = wa_bdcmsgcoll-msgv3
+          v4   = wa_bdcmsgcoll-msgv4
+        IMPORTING
+          msg  = v_msg.
+      wa_msg = v_msg.
+      APPEND wa_msg TO it_msg.
+    ENDLOOP.
+    CALL SCREEN 6001.
+
+  ELSEIF session = 'X'.
+    "Session Method
+
+    CALL FUNCTION 'BDC_OPEN_GROUP'
+      EXPORTING
+        group = 'Vaib_MM01'
+        keep  = 'X'
+        user  = sy-uname.
+    LOOP AT it_file INTO wa_file.
+
+      "SCREEN 0060
+      PERFORM bdc_dynpro USING 'SAPLMGMM' '0060'.
+      PERFORM bdc_field USING 'RMMG1-MATNR' wa_file-matnr.
+      PERFORM bdc_field USING 'RMMG1-MBRSH' wa_file-mbrsh.
+      PERFORM bdc_field USING 'RMMG1-MTART' wa_file-mtart.
+      PERFORM bdc_field USING 'BDC_OKCODE' '=ENTR'.
+
+      "SCREEN 0070
+      PERFORM bdc_dynpro USING 'SAPLMGMM' '0070'.
+      PERFORM bdc_field USING 'MSICHTAUSW-KZSEL(01)' 'X'.
+      PERFORM bdc_field USING 'MSICHTAUSW-KZSEL(02)' 'X'.
+      PERFORM bdc_field USING 'BDC_OKCODE' '=ENTR'.
+
+      "SCREEN 4004
+      PERFORM bdc_dynpro USING 'SAPLMGMM' '4004'.
+      PERFORM bdc_field USING 'MAKT-MAKTX' wa_file-maktx.
+      PERFORM bdc_field USING 'MARA-MEINS' wa_file-meins.
+      PERFORM bdc_field USING 'BDC_OKCODE' '=SP02'.
+
+      "SCREEN 4004
+      PERFORM bdc_dynpro USING 'SAPLMGMM' '4004'.
+      PERFORM bdc_field USING 'MAKT-MAKTX' wa_file-maktx.
+      PERFORM bdc_field USING 'BDC_OKCODE' '=BU'.
+
+      CALL FUNCTION 'BDC_INSERT'
+        EXPORTING
+          tcode     = 'MM01'
+        TABLES
+          dynprotab = it_bdcdata.
+      REFRESH it_bdcdata.
+    ENDLOOP.
+    CALL FUNCTION 'BDC_CLOSE_GROUP'.
+  ENDIF.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Form  BDC_DYNPRO
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_0147   text
+*      -->P_0148   text
+*----------------------------------------------------------------------*
+FORM bdc_dynpro  USING  fp_program TYPE any fp_dynpro TYPE any.
+  CLEAR wa_bdcdata.
+  wa_bdcdata-program = fp_program.
+  wa_bdcdata-dynpro = fp_dynpro.
+  wa_bdcdata-dynbegin = 'X'.
+  APPEND wa_bdcdata TO it_bdcdata.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  BDC_FIELD
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_0152   text
+*      -->P_WA_FILE_LIFNR  text
+*----------------------------------------------------------------------*
+FORM bdc_field  USING fp_name TYPE any fp_value TYPE any.
+  CLEAR wa_bdcdata.
+  wa_bdcdata-fnam = fp_name.
+  wa_bdcdata-fval = fp_value.
+  APPEND wa_bdcdata TO it_bdcdata.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_6000  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_6000 OUTPUT.
+  SET PF-STATUS 'ZSTATUS'.
+  SET TITLEBAR 'MATERIAL'.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_6001  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_6001 INPUT.
+  CASE sy-ucomm.
+    WHEN 'BACK'.
+      LEAVE TO SCREEN 0.
+  ENDCASE.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Form  DISPLAY_ALV_6001
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+MODULE display_alv_6001 OUTPUT .
+
+  PERFORM display_data.
+
+ENDMODULE.
+
+FORM  display_data.
+
+  IF it_bdcmsgcoll IS NOT INITIAL.
+
+    IF o_container1 IS INITIAL.
+      CREATE OBJECT o_container1
+        EXPORTING
+          container_name = 'C1'.
+    ENDIF.
+
+    IF o_grid1 IS  INITIAL.
+      CREATE OBJECT o_grid1
+        EXPORTING
+          i_parent = o_container1.
+    ENDIF.
+
+    DATA:it_fcat TYPE lvc_t_fcat,
+         wa_fcat TYPE LINE OF lvc_t_fcat.
+
+    wa_fcat-col_pos = '1' . "Specify position of a field
+    wa_fcat-fieldname = 'v_msg1'(003) . "Specify field name
+    wa_fcat-tabname = 'IT_bdc' . "Specify internal table name
+    wa_fcat-reptext = 'Material Creation Message'(002).    "Title of the ALV Screen
+    APPEND wa_fcat TO it_fcat . "Append to field catalog internal table
+
+    CALL METHOD o_grid1->set_table_for_first_display
+      CHANGING
+        it_outtab       = it_msg
+        it_fieldcatalog = it_fcat.
+  ELSE.
+    MESSAGE I000.
+  ENDIF.
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_6001  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_6001 OUTPUT.
+  SET PF-STATUS 'ZSTATUS1'.
+  SET TITLEBAR 'MESSAGE_LOG'.
+ENDMODULE.
